@@ -1,6 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import {
   ArrowLeft,
   ArrowRight,
@@ -8,21 +10,32 @@ import {
   Building2,
   UserRound,
   Receipt,
-  CreditCard,
   ShieldCheck,
+  CreditCard,
   Sparkles,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { ANNUAL_DISCOUNT, MODULES, PLANS, TAX_RATE } from "@/lib/pricing-data";
+import { ANNUAL_DISCOUNT, TAX_RATE } from "@/lib/pricing-data";
+import { usePricing } from "@/hooks/use-pricing";
+import { startCheckout, finalizeCheckout, type FinalizeCheckoutResponse } from "@/lib/api";
+
+const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
+const stripePromise =
+  typeof window !== "undefined" && STRIPE_PUBLISHABLE_KEY
+    ? loadStripe(STRIPE_PUBLISHABLE_KEY)
+    : null;
+
+const PENDING_SIGNUP_STORAGE_KEY = "contractly_pending_signup_id";
 
 const searchSchema = z.object({
-  plan: z.enum(["starter", "professional", "business", "enterprise"]).default("professional"),
+  plan: z.string().default(""),
   billing: z.enum(["monthly", "yearly"]).default("yearly"),
   modules: z.string().default(""),
 });
@@ -51,14 +64,15 @@ const STEPS = [
   { key: "company", title: "Company", icon: Building2 },
   { key: "owner", title: "Owner", icon: UserRound },
   { key: "summary", title: "Summary", icon: Receipt },
-  { key: "payment", title: "Payment", icon: CreditCard },
   { key: "review", title: "Review", icon: ShieldCheck },
+  { key: "payment", title: "Payment", icon: CreditCard },
 ] as const;
 
 function RegisterPage() {
   const { plan, billing, modules } = Route.useSearch();
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
+  const { plans, modules: allModules, isAllInclusive, isLoading: pricingLoading } = usePricing();
 
   const [company, setCompany] = useState({
     name: "", type: "LLC", industry: "Construction", website: "", country: "United States",
@@ -67,21 +81,29 @@ function RegisterPage() {
   const [owner, setOwner] = useState({
     firstName: "", lastName: "", email: "", phone: "", password: "", confirm: "",
   });
-  const [payment, setPayment] = useState({
-    method: "card", card: "", expiry: "", cvc: "", coupon: "", billingAddress: "",
-  });
+  const [couponCode, setCouponCode] = useState("");
   const [terms, setTerms] = useState(false);
 
-  const selectedPlan = PLANS.find((p) => p.id === plan)!;
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [pendingSignupId, setPendingSignupId] = useState<string | null>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [resumingRedirect, setResumingRedirect] = useState(false);
+
+  const selectedPlan = plans.find((p) => p.id === plan) ?? plans[0];
   const selectedModuleIds = modules ? modules.split(",").filter(Boolean) : [];
   const yearly = billing === "yearly";
 
   const summary = useMemo(() => {
-    const isEnterprise = selectedPlan.id === "enterprise";
-    const addons = MODULES.filter(
+    if (!selectedPlan) {
+      return { addons: [], addonMonthly: 0, baseMonthly: 0, subMonthly: 0, monthlyBilled: 0, preTax: 0, tax: 0, total: 0 };
+    }
+    const allInclusive = isAllInclusive(selectedPlan);
+    const addons = allModules.filter(
       (m) =>
         selectedModuleIds.includes(m.id) &&
-        !isEnterprise &&
+        !allInclusive &&
         !selectedPlan.includedModules.includes(m.id),
     );
     const addonMonthly = addons.reduce((s, m) => s + m.price, 0);
@@ -90,23 +112,89 @@ function RegisterPage() {
     const preTax = yearly ? monthlyBilled * 12 : monthlyBilled;
     const tax = preTax * TAX_RATE;
     return { addons, addonMonthly, baseMonthly: selectedPlan.monthly, subMonthly, monthlyBilled, preTax, tax, total: preTax + tax };
-  }, [selectedPlan, selectedModuleIds, yearly]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPlan, allModules, selectedModuleIds, yearly]);
 
-  const next = () => setStep((s) => Math.min(s + 1, STEPS.length - 1));
+  const goToSuccess = (result: FinalizeCheckoutResponse) => {
+    sessionStorage.removeItem(PENDING_SIGNUP_STORAGE_KEY);
+    navigate({
+      to: "/success",
+      search: { plan: result.client.plan, subdomain: result.client.subdomain } as never,
+    });
+  };
+
+  // If Stripe redirected back here after an off-session authentication step
+  // (e.g. 3D Secure), finish the signup using the pendingSignupId we stashed
+  // before leaving — none of the in-memory wizard state survives a redirect.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const redirectStatus = params.get("redirect_status");
+    const storedId = sessionStorage.getItem(PENDING_SIGNUP_STORAGE_KEY);
+    if (!redirectStatus || !storedId) return;
+
+    setResumingRedirect(true);
+    if (redirectStatus === "succeeded") {
+      finalizeCheckout(storedId)
+        .then(goToSuccess)
+        .catch((err) => {
+          sessionStorage.removeItem(PENDING_SIGNUP_STORAGE_KEY);
+          setSubmitError(err instanceof Error ? err.message : "We couldn't finish setting up your workspace.");
+          setResumingRedirect(false);
+        });
+    } else {
+      sessionStorage.removeItem(PENDING_SIGNUP_STORAGE_KEY);
+      setSubmitError("Payment wasn't completed. Please try again.");
+      setResumingRedirect(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const goNext = async () => {
+    if (step === STEPS.length - 2 && !pendingSignupId) {
+      // Leaving Review, entering Payment — start the Stripe checkout session.
+      setCheckoutLoading(true);
+      setSubmitError(null);
+      try {
+        const result = await startCheckout({
+          companyName: company.name,
+          ownerName: `${owner.firstName} ${owner.lastName}`.trim(),
+          ownerEmail: owner.email,
+          ownerPassword: owner.password,
+          phone: owner.phone || company.phone,
+          planId: selectedPlan!.id,
+          billingCycle: yearly ? "yearly" : "monthly",
+          addonModuleIds: summary.addons.map((m) => m.id),
+          couponCode: couponCode || undefined,
+        });
+        setPendingSignupId(result.pendingSignupId);
+        setClientSecret(result.clientSecret);
+      } catch (err) {
+        setSubmitError(err instanceof Error ? err.message : "Couldn't start checkout. Please try again.");
+        setCheckoutLoading(false);
+        return;
+      }
+      setCheckoutLoading(false);
+    }
+    setStep((s) => Math.min(s + 1, STEPS.length - 1));
+  };
   const back = () => setStep((s) => Math.max(s - 1, 0));
 
   const canProceed = () => {
     if (step === 0) return company.name && company.email && company.country;
     if (step === 1) return owner.firstName && owner.email && owner.password && owner.password === owner.confirm;
-    if (step === 3) return payment.method === "invoice" || payment.method === "bank" || (payment.card && payment.expiry && payment.cvc);
-    if (step === 4) return terms;
+    if (step === 3) return terms;
     return true;
   };
 
-  const submit = () => {
-    // Simulated submit
-    navigate({ to: "/success", search: { plan } as never });
-  };
+  if (pricingLoading || !selectedPlan || resumingRedirect) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-hero">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const isLastStep = step === STEPS.length - 1;
 
   return (
     <div className="min-h-screen bg-hero">
@@ -260,40 +348,17 @@ function RegisterPage() {
                     </div>
                   </div>
                 )}
-              </StepShell>
-            )}
-
-            {step === 3 && (
-              <StepShell title="Payment" desc="Secure checkout powered by Stripe. Cancel anytime.">
-                <RadioGroup value={payment.method} onValueChange={(v) => setPayment({ ...payment, method: v })} className="grid gap-2 sm:grid-cols-3">
-                  {[
-                    { v: "card", l: "Credit card" },
-                    { v: "invoice", l: "Invoice" },
-                    { v: "bank", l: "Bank transfer" },
-                  ].map((o) => (
-                    <label key={o.v} className={cn("flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-sm transition-colors", payment.method === o.v && "border-primary bg-primary/5")}>
-                      <RadioGroupItem value={o.v} /> {o.l}
-                    </label>
-                  ))}
-                </RadioGroup>
-
-                {payment.method === "card" && (
-                  <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                    <Field label="Card number" className="sm:col-span-2"><Input inputMode="numeric" value={payment.card} onChange={(e) => setPayment({ ...payment, card: e.target.value })} placeholder="4242 4242 4242 4242" /></Field>
-                    <Field label="Expiry"><Input value={payment.expiry} onChange={(e) => setPayment({ ...payment, expiry: e.target.value })} placeholder="MM / YY" /></Field>
-                    <Field label="CVC"><Input value={payment.cvc} onChange={(e) => setPayment({ ...payment, cvc: e.target.value })} placeholder="CVC" /></Field>
-                  </div>
-                )}
-
-                <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                  <Field label="Coupon code"><Input value={payment.coupon} onChange={(e) => setPayment({ ...payment, coupon: e.target.value })} placeholder="Optional" /></Field>
-                  <Field label="Billing address"><Input value={payment.billingAddress} onChange={(e) => setPayment({ ...payment, billingAddress: e.target.value })} placeholder="Same as company address" /></Field>
+                <div className="mt-4 max-w-xs">
+                  <Field label="Coupon code">
+                    <Input value={couponCode} onChange={(e) => setCouponCode(e.target.value)} placeholder="Optional" />
+                  </Field>
+                  <p className="mt-1 text-xs text-muted-foreground">Discount is applied at the payment step.</p>
                 </div>
               </StepShell>
             )}
 
-            {step === 4 && (
-              <StepShell title="Review everything" desc="One last look before we create your workspace.">
+            {step === 3 && (
+              <StepShell title="Review everything" desc="One last look before you pay and create your workspace.">
                 <div className="grid gap-4">
                   <ReviewGroup title="Company">
                     <ReviewItem k="Name" v={company.name || "—"} />
@@ -318,20 +383,68 @@ function RegisterPage() {
               </StepShell>
             )}
 
-            <div className="mt-8 flex items-center justify-between">
-              <Button variant="ghost" onClick={back} disabled={step === 0}>
-                <ArrowLeft className="mr-1 h-4 w-4" /> Back
-              </Button>
-              {step < STEPS.length - 1 ? (
-                <Button onClick={next} disabled={!canProceed()} className="bg-brand-gradient text-primary-foreground shadow-glow">
+            {step === 4 && (
+              <StepShell title="Payment" desc="Secure checkout powered by Stripe.">
+                {checkoutLoading ? (
+                  <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Setting up secure payment…
+                  </div>
+                ) : !STRIPE_PUBLISHABLE_KEY ? (
+                  <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    Payments aren't configured yet (missing Stripe publishable key).
+                  </div>
+                ) : !pendingSignupId ? (
+                  <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> Couldn't start checkout. Go back and try again.
+                  </div>
+                ) : clientSecret ? (
+                  <Elements stripe={stripePromise} options={{ clientSecret }}>
+                    <CardPaymentStep
+                      pendingSignupId={pendingSignupId}
+                      total={summary.total}
+                      billed={yearly ? "yearly" : "monthly"}
+                      submitting={submitting}
+                      setSubmitting={setSubmitting}
+                      setSubmitError={setSubmitError}
+                      onPaid={goToSuccess}
+                    />
+                  </Elements>
+                ) : (
+                  <NoChargeConfirmStep
+                    pendingSignupId={pendingSignupId}
+                    submitting={submitting}
+                    setSubmitting={setSubmitting}
+                    setSubmitError={setSubmitError}
+                    onPaid={goToSuccess}
+                  />
+                )}
+                {submitError && (
+                  <div className="mt-4 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {submitError}
+                  </div>
+                )}
+              </StepShell>
+            )}
+
+            {!isLastStep && (
+              <div className="mt-8 flex items-center justify-between">
+                <Button variant="ghost" onClick={back} disabled={step === 0}>
+                  <ArrowLeft className="mr-1 h-4 w-4" /> Back
+                </Button>
+                <Button onClick={goNext} disabled={!canProceed() || checkoutLoading} className="bg-brand-gradient text-primary-foreground shadow-glow">
+                  {checkoutLoading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
                   Continue <ArrowRight className="ml-1 h-4 w-4" />
                 </Button>
-              ) : (
-                <Button onClick={submit} disabled={!canProceed()} className="bg-brand-gradient text-primary-foreground shadow-glow">
-                  Create workspace <ArrowRight className="ml-1 h-4 w-4" />
+              </div>
+            )}
+            {isLastStep && (
+              <div className="mt-8">
+                <Button variant="ghost" onClick={back} disabled={submitting}>
+                  <ArrowLeft className="mr-1 h-4 w-4" /> Back
                 </Button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Sidebar summary */}
@@ -357,6 +470,95 @@ function RegisterPage() {
           </aside>
         </div>
       </main>
+    </div>
+  );
+}
+
+type PaymentStepProps = {
+  pendingSignupId: string;
+  submitting: boolean;
+  setSubmitting: (v: boolean) => void;
+  setSubmitError: (v: string | null) => void;
+  onPaid: (result: FinalizeCheckoutResponse) => void;
+};
+
+/** Payment step when there's a real amount due — collects card details via Stripe Elements. */
+function CardPaymentStep({
+  pendingSignupId,
+  total,
+  billed,
+  submitting,
+  setSubmitting,
+  setSubmitError,
+  onPaid,
+}: PaymentStepProps & { total: number; billed: "monthly" | "yearly" }) {
+  const stripe = useStripe();
+  const elements = useElements();
+
+  const handlePay = async () => {
+    if (!stripe || !elements || submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      sessionStorage.setItem(PENDING_SIGNUP_STORAGE_KEY, pendingSignupId);
+      const { error } = await stripe.confirmPayment({
+        elements,
+        confirmParams: { return_url: window.location.href },
+        redirect: "if_required",
+      });
+      if (error) throw new Error(error.message || "Payment failed.");
+
+      const result = await finalizeCheckout(pendingSignupId);
+      sessionStorage.removeItem(PENDING_SIGNUP_STORAGE_KEY);
+      onPaid(result);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Payment failed. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <PaymentElement />
+      <Button
+        onClick={handlePay}
+        disabled={!stripe || submitting}
+        className="mt-6 w-full bg-brand-gradient text-primary-foreground shadow-glow"
+        size="lg"
+      >
+        {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+        Pay {currency(total)} {billed === "yearly" ? "/yr" : "/mo"} & create workspace
+      </Button>
+    </div>
+  );
+}
+
+/** Payment step when nothing is due (e.g. a 100%-off coupon) — no card needed. */
+function NoChargeConfirmStep({ pendingSignupId, submitting, setSubmitting, setSubmitError, onPaid }: PaymentStepProps) {
+  const handleConfirm = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const result = await finalizeCheckout(pendingSignupId);
+      onPaid(result);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="rounded-xl border bg-secondary/40 p-4 text-sm text-muted-foreground">
+        Nothing due right now — your discount covers this invoice in full.
+      </div>
+      <Button onClick={handleConfirm} disabled={submitting} className="mt-6 w-full bg-brand-gradient text-primary-foreground shadow-glow" size="lg">
+        {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+        Create workspace <ArrowRight className="ml-1 h-4 w-4" />
+      </Button>
     </div>
   );
 }

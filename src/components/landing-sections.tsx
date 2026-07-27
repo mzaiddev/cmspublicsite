@@ -53,7 +53,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { INDUSTRIES, MANDATORY_MODULES, MODULES, PLANS } from "@/lib/pricing-data";
+import { INDUSTRIES } from "@/lib/pricing-data";
+import { usePricing } from "@/hooks/use-pricing";
 import { cn } from "@/lib/utils";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -359,6 +360,7 @@ export function TrustSection() {
 
 /* ---------------- FEATURES ---------------- */
 export function FeaturesSection() {
+  const { modules } = usePricing();
   const featured = [
     { icon: HardHat, title: "Contractor Management", desc: "Onboard, verify, and manage 1099s with a beautiful contractor portal." },
     { icon: Workflow, title: "Workflow Builder", desc: "Automate approvals, dispatch, and reminders with a visual builder." },
@@ -393,9 +395,9 @@ export function FeaturesSection() {
         </div>
 
         <div className="mt-12 rounded-3xl border bg-secondary/40 p-6 sm:p-8">
-          <div className="mb-4 text-sm font-semibold text-muted-foreground">And 25+ more modules</div>
+          <div className="mb-4 text-sm font-semibold text-muted-foreground">And {modules.length}+ more modules</div>
           <div className="flex flex-wrap gap-2">
-            {MODULES.map((m) => {
+            {modules.map((m) => {
               const Icon = iconMap[m.icon] ?? Sparkles;
               return (
                 <span key={m.id} className="inline-flex items-center gap-1.5 rounded-full border bg-card px-3 py-1.5 text-xs font-medium shadow-card">
@@ -445,15 +447,18 @@ export function HowItWorks() {
 
 /* ---------------- COMPARE PLANS ---------------- */
 export function ComparePlans() {
+  const { plans, modules, coreModuleNames, isAllInclusive, isLoading } = usePricing();
+
+  if (isLoading || plans.length === 0) return null;
+
   const rows = [
-    ...MANDATORY_MODULES.map((m) => ({ id: m, name: m, mandatory: true })),
-    ...MODULES.map((m) => ({ id: m.id, name: m.name, mandatory: false })),
+    ...coreModuleNames.map((name) => ({ id: name, name, mandatory: true })),
+    ...modules.map((m) => ({ id: m.id, name: m.name, mandatory: false })),
   ];
 
-  const hasModule = (planId: string, id: string, mandatory: boolean) => {
+  const hasModule = (plan: (typeof plans)[number], id: string, mandatory: boolean) => {
     if (mandatory) return true;
-    const plan = PLANS.find((p) => p.id === planId)!;
-    if (plan.id === "enterprise") return true;
+    if (isAllInclusive(plan)) return true;
     return plan.includedModules.includes(id);
   };
 
@@ -466,7 +471,7 @@ export function ComparePlans() {
             <thead className="bg-secondary/60 text-left">
               <tr>
                 <th className="p-4 font-semibold">Module</th>
-                {PLANS.map((p) => (
+                {plans.map((p) => (
                   <th key={p.id} className="p-4 text-center font-semibold">
                     {p.name}
                     <div className="text-xs font-normal text-muted-foreground">${p.monthly}/mo</div>
@@ -481,9 +486,9 @@ export function ComparePlans() {
                     {r.name}
                     {r.mandatory && <Badge className="ml-2 bg-primary/10 text-primary hover:bg-primary/10">Core</Badge>}
                   </td>
-                  {PLANS.map((p) => (
+                  {plans.map((p) => (
                     <td key={p.id} className="p-3 text-center">
-                      {hasModule(p.id, r.id, r.mandatory) ? (
+                      {hasModule(p, r.id, r.mandatory) ? (
                         <Check className="mx-auto h-4 w-4 text-success" />
                       ) : (
                         <span className="text-xs text-muted-foreground">Add-on</span>

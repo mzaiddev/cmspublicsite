@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 export const Route = createFileRoute("/success")({
   validateSearch: z.object({
     plan: z.string().optional(),
+    subdomain: z.string().optional(),
   }),
   head: () => ({
     meta: [
@@ -19,6 +20,7 @@ export const Route = createFileRoute("/success")({
 });
 
 function SuccessPage() {
+  const { subdomain } = Route.useSearch();
   const items = [
     { icon: Check, t: "Subscription activated", d: "Your plan is live and ready to use." },
     { icon: Building2, t: "Workspace created", d: "We provisioned a dedicated workspace for your company." },
@@ -36,6 +38,11 @@ function SuccessPage() {
         </h1>
         <p className="mx-auto mt-3 max-w-lg text-center text-sm text-muted-foreground">
           Welcome to Contractly. Everything's set up — you can jump right into your workspace.
+          {subdomain && (
+            <>
+              {" "}Your workspace subdomain: <span className="font-medium text-foreground">{subdomain}</span>
+            </>
+          )}
         </p>
 
         <ul className="mt-8 grid gap-3 sm:grid-cols-2">

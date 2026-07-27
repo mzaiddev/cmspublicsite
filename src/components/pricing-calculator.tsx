@@ -1,25 +1,19 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Check, Sparkles, ArrowRight } from "lucide-react";
+import { Check, Sparkles, ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import {
-  ANNUAL_DISCOUNT,
-  MANDATORY_MODULES,
-  MODULES,
-  PLANS,
-  TAX_RATE,
-  type Plan,
-} from "@/lib/pricing-data";
+import { ANNUAL_DISCOUNT, TAX_RATE } from "@/lib/pricing-data";
+import { usePricing } from "@/hooks/use-pricing";
 
 const currency = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 
 export type CalculatorState = {
-  planId: Plan["id"];
+  planId: string;
   moduleIds: string[];
   yearly: boolean;
 };
@@ -33,18 +27,28 @@ export function encodeSelection(s: CalculatorState) {
 }
 
 export default function PricingCalculator() {
-  const [planId, setPlanId] = useState<Plan["id"]>("professional");
+  const { plans, modules, coreModuleNames, isAllInclusive, isLoading, isError } = usePricing();
+  const [planId, setPlanId] = useState<string>("");
   const [yearly, setYearly] = useState(true);
-  const [selected, setSelected] = useState<Set<string>>(new Set(["analytics", "reports"]));
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const plan = PLANS.find((p) => p.id === planId)!;
-  const isEnterprise = plan.id === "enterprise";
+  // Default to the "popular" plan (or the first one) once the catalog loads.
+  useEffect(() => {
+    if (!planId && plans.length > 0) {
+      setPlanId(plans.find((p) => p.highlight)?.id ?? plans[0].id);
+    }
+  }, [plans, planId]);
+
+  const plan = plans.find((p) => p.id === planId);
+  const allInclusive = plan ? isAllInclusive(plan) : false;
 
   const isIncluded = (mid: string) =>
-    isEnterprise || plan.includedModules.includes(mid);
+    allInclusive || (plan?.includedModules.includes(mid) ?? false);
+
+  const isOfferedAsAddon = (mid: string) => plan?.addonModules.includes(mid) ?? false;
 
   const toggle = (mid: string) => {
-    if (isIncluded(mid)) return;
+    if (isIncluded(mid) || !isOfferedAsAddon(mid)) return;
     setSelected((prev) => {
       const n = new Set(prev);
       n.has(mid) ? n.delete(mid) : n.add(mid);
@@ -53,7 +57,10 @@ export default function PricingCalculator() {
   };
 
   const summary = useMemo(() => {
-    const addonModules = MODULES.filter((m) => selected.has(m.id) && !isIncluded(m.id));
+    if (!plan) {
+      return { addonModules: [], addonMonthly: 0, baseMonthly: 0, subMonthly: 0, monthlyBilled: 0, annualDiscount: 0, tax: 0, total: 0, preTax: 0 };
+    }
+    const addonModules = modules.filter((m) => selected.has(m.id) && !isIncluded(m.id));
     const addonMonthly = addonModules.reduce((s, m) => s + m.price, 0);
     const baseMonthly = plan.monthly;
     const subMonthly = baseMonthly + addonMonthly;
@@ -65,13 +72,29 @@ export default function PricingCalculator() {
     const total = preTax + tax;
     return { addonModules, addonMonthly, baseMonthly, subMonthly, monthlyBilled, annualDiscount, tax, total, preTax };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planId, selected, yearly]);
+  }, [plan, modules, selected, yearly]);
 
   const state: CalculatorState = {
     planId,
     yearly,
     moduleIds: Array.from(selected),
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 rounded-3xl border bg-card p-16 text-muted-foreground shadow-card">
+        <Loader2 className="h-5 w-5 animate-spin" /> Loading live pricing…
+      </div>
+    );
+  }
+
+  if (isError || !plan) {
+    return (
+      <div className="rounded-3xl border bg-card p-16 text-center text-muted-foreground shadow-card">
+        Pricing is temporarily unavailable. Please try again shortly.
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
@@ -93,7 +116,7 @@ export default function PricingCalculator() {
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {PLANS.map((p) => {
+            {plans.map((p) => {
               const active = p.id === planId;
               return (
                 <button
@@ -128,7 +151,7 @@ export default function PricingCalculator() {
             <Sparkles className="h-4 w-4 text-primary" /> Included in every plan
           </div>
           <div className="flex flex-wrap gap-2">
-            {MANDATORY_MODULES.map((m) => (
+            {coreModuleNames.map((m) => (
               <span key={m} className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs">
                 <Check className="h-3 w-3 text-success" /> {m}
               </span>
@@ -140,9 +163,11 @@ export default function PricingCalculator() {
         <div>
           <h3 className="mb-4 text-lg font-semibold">2. Add optional modules</h3>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {MODULES.map((m) => {
+            {modules.map((m) => {
               const included = isIncluded(m.id);
+              const offered = allInclusive || isOfferedAsAddon(m.id);
               const checked = included || selected.has(m.id);
+              if (!offered) return null;
               return (
                 <label
                   key={m.id}
