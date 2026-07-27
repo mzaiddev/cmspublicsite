@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link } from "react-router-dom";
 import { Check, Sparkles, ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -255,12 +255,7 @@ export default function PricingCalculator() {
           </div>
 
           <Link
-            to="/register"
-            search={{
-              plan: state.planId,
-              billing: state.yearly ? "yearly" : "monthly",
-              modules: state.moduleIds.join(","),
-            } as never}
+            to={`/register?plan=${encodeURIComponent(state.planId)}&billing=${state.yearly ? "yearly" : "monthly"}&modules=${encodeURIComponent(state.moduleIds.join(","))}`}
             className="mt-6 block"
           >
             <Button size="lg" className="w-full bg-brand-gradient text-primary-foreground shadow-glow">
