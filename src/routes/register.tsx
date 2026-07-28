@@ -403,15 +403,15 @@ export default function RegisterPage() {
                       onPaid={goToSuccess}
                     />
                   )}
-                  {submitError && (
-                    <div className="mt-4 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {submitError}
-                    </div>
-                  )}
                 </StepShell>
               )}
 
-              {!isLastStep && (
+              {submitError && (
+              <div className="mt-4 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {submitError}
+              </div>
+            )}
+            {!isLastStep && (
                 <div className="mt-8 flex items-center justify-between">
                   <Button variant="ghost" onClick={back} disabled={step === 0}>
                     <ArrowLeft className="mr-1 h-4 w-4" /> Back
