@@ -25,10 +25,16 @@ export default function HomePage() {
           content="Contractly is the modern operating system for contractor-driven companies. Onboarding, work orders, agreements, invoices, payments, and analytics — all in one place."
         />
         <meta property="og:title" content="Contractly — Contractor CRM & operations platform" />
-        <meta property="og:description" content="The all-in-one platform for managing contractors, vendors, work orders, invoices, and payments." />
+        <meta
+          property="og:description"
+          content="The all-in-one platform for managing contractors, vendors, work orders, invoices, and payments."
+        />
         <meta property="og:url" content="/" />
         <meta name="twitter:title" content="Contractly" />
-        <meta name="twitter:description" content="Run your contractor business from one platform." />
+        <meta
+          name="twitter:description"
+          content="Run your contractor business from one platform."
+        />
         <link rel="canonical" href="/" />
         <script type="application/ld+json">
           {JSON.stringify({
@@ -45,7 +51,7 @@ export default function HomePage() {
         <SiteHeader />
         <main>
           <Hero />
-          <TrustSection />
+          {/* <TrustSection /> */}
           <FeaturesSection />
           <HowItWorks />
 
@@ -70,11 +76,11 @@ export default function HomePage() {
             </div>
           </section>
 
-          <ComparePlans />
+          {/* <ComparePlans /> */}
           <ProductPreview />
           <Testimonials />
           <IndustriesSection />
-          <FaqSection />
+          {/* <FaqSection /> */}
           <CtaBand />
         </main>
         <SiteFooter />
