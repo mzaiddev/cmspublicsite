@@ -240,12 +240,7 @@ export default function RegisterPage() {
               </span>
               <span className="text-base font-bold">Contractly</span>
             </Link>
-            <div className="text-sm text-muted-foreground">
-              Already have an account?{" "}
-              <a href="#" className="font-medium text-foreground hover:underline">
-                Log in
-              </a>
-            </div>
+
           </div>
         </header>
 

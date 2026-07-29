@@ -117,7 +117,6 @@ export function SiteHeader() {
     { label: "Solutions", href: "#industries" },
     { label: "Pricing", href: "#pricing" },
     { label: "Modules", href: "#modules-compare" },
-    { label: "Resources", href: "#faq" },
   ];
 
   return (
@@ -145,24 +144,13 @@ export function SiteHeader() {
               {n.label}
             </a>
           ))}
-          <a
-            href="#contact"
-            className="rounded-md px-3 py-2 text-sm font-medium text-foreground/80 hover:text-foreground"
-          >
-            Contact
-          </a>
         </nav>
 
-        <div className="hidden items-center gap-2 md:flex">
-          <Button variant="ghost" size="sm">
-            Log in
+        <Link to="/register">
+          <Button size="sm" className="hidden md:inline-flex bg-brand-gradient text-primary-foreground shadow-glow">
+            Get started
           </Button>
-          <Link to="/register">
-            <Button size="sm" className="bg-brand-gradient text-primary-foreground shadow-glow">
-              Get started
-            </Button>
-          </Link>
-        </div>
+        </Link>
 
         <button
           className="grid h-10 w-10 place-items-center rounded-md md:hidden"
@@ -187,7 +175,6 @@ export function SiteHeader() {
               </a>
             ))}
             <div className="mt-2 flex flex-col gap-2 pt-2">
-              <Button variant="ghost">Log in</Button>
               <Link to="/register" onClick={() => setOpen(false)}>
                 <Button className="w-full bg-brand-gradient text-primary-foreground">
                   Get started
