@@ -76,7 +76,7 @@ export default function HomePage() {
             </div>
           </section>
 
-          {/* <ComparePlans /> */}
+          <ComparePlans />
           <ProductPreview />
           <Testimonials />
           <IndustriesSection />

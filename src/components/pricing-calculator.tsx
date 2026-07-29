@@ -10,7 +10,11 @@ import { ANNUAL_DISCOUNT, TAX_RATE } from "@/lib/pricing-data";
 import { usePricing } from "@/hooks/use-pricing";
 
 const currency = (n: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(n);
 
 export type CalculatorState = {
   planId: string;
@@ -58,7 +62,17 @@ export default function PricingCalculator() {
 
   const summary = useMemo(() => {
     if (!plan) {
-      return { addonModules: [], addonMonthly: 0, baseMonthly: 0, subMonthly: 0, monthlyBilled: 0, annualDiscount: 0, tax: 0, total: 0, preTax: 0 };
+      return {
+        addonModules: [],
+        addonMonthly: 0,
+        baseMonthly: 0,
+        subMonthly: 0,
+        monthlyBilled: 0,
+        annualDiscount: 0,
+        tax: 0,
+        total: 0,
+        preTax: 0,
+      };
     }
     const addonModules = modules.filter((m) => selected.has(m.id) && !isIncluded(m.id));
     const addonMonthly = addonModules.reduce((s, m) => s + m.price, 0);
@@ -70,7 +84,17 @@ export default function PricingCalculator() {
     const preTax = yearly ? yearlyTotal : monthlyBilled;
     const tax = preTax * TAX_RATE;
     const total = preTax + tax;
-    return { addonModules, addonMonthly, baseMonthly, subMonthly, monthlyBilled, annualDiscount, tax, total, preTax };
+    return {
+      addonModules,
+      addonMonthly,
+      baseMonthly,
+      subMonthly,
+      monthlyBilled,
+      annualDiscount,
+      tax,
+      total,
+      preTax,
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan, modules, selected, yearly]);
 
@@ -105,13 +129,34 @@ export default function PricingCalculator() {
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold">1. Choose your base plan</h3>
-              <p className="text-sm text-muted-foreground">Mandatory modules are always included.</p>
+              <p className="text-sm text-muted-foreground">
+                Mandatory modules are always included.
+              </p>
             </div>
             <div className="flex items-center gap-3 rounded-full border bg-card px-3 py-1.5 text-sm shadow-card">
-              <span className={cn("font-medium", !yearly && "text-foreground", yearly && "text-muted-foreground")}>Monthly</span>
-              <Switch checked={yearly} onCheckedChange={setYearly} aria-label="Toggle yearly billing" />
-              <span className={cn("font-medium", yearly && "text-foreground", !yearly && "text-muted-foreground")}>
-                Yearly <Badge className="ml-1 bg-success/15 text-success hover:bg-success/15">-20%</Badge>
+              <span
+                className={cn(
+                  "font-medium",
+                  !yearly && "text-foreground",
+                  yearly && "text-muted-foreground",
+                )}
+              >
+                Monthly
+              </span>
+              <Switch
+                checked={yearly}
+                onCheckedChange={setYearly}
+                aria-label="Toggle yearly billing"
+              />
+              <span
+                className={cn(
+                  "font-medium",
+                  yearly && "text-foreground",
+                  !yearly && "text-muted-foreground",
+                )}
+              >
+                Yearly{" "}
+                <Badge className="ml-1 bg-success/15 text-success hover:bg-success/15">-20%</Badge>
               </span>
             </div>
           </div>
@@ -146,21 +191,24 @@ export default function PricingCalculator() {
         </div>
 
         {/* Mandatory */}
-        <div className="rounded-2xl border bg-secondary/40 p-5">
+        {/* <div className="rounded-2xl border bg-secondary/40 p-5">
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
             <Sparkles className="h-4 w-4 text-primary" /> Included in every plan
           </div>
           <div className="flex flex-wrap gap-2">
             {coreModuleNames.map((m) => (
-              <span key={m} className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs">
+              <span
+                key={m}
+                className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs"
+              >
                 <Check className="h-3 w-3 text-success" /> {m}
               </span>
             ))}
           </div>
-        </div>
+        </div> */}
 
         {/* Optional modules */}
-        <div>
+        {/* <div>
           <h3 className="mb-4 text-lg font-semibold">2. Add optional modules</h3>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {modules.map((m) => {
@@ -208,7 +256,7 @@ export default function PricingCalculator() {
               );
             })}
           </div>
-        </div>
+        </div> */}
       </div>
 
       {/* RIGHT — summary */}
@@ -232,10 +280,7 @@ export default function PricingCalculator() {
                 accent="success"
               />
             )}
-            <Row
-              label={`Tax (${Math.round(TAX_RATE * 100)}%)`}
-              value={currency(summary.tax)}
-            />
+            <Row label={`Tax (${Math.round(TAX_RATE * 100)}%)`} value={currency(summary.tax)} />
           </div>
 
           <div className="my-5 h-px bg-border" />
@@ -244,30 +289,35 @@ export default function PricingCalculator() {
             <span className="text-sm text-muted-foreground">
               Billed {yearly ? "annually" : "monthly"}
             </span>
-            <span className="text-3xl font-bold tracking-tight">
-              {currency(summary.total)}
-            </span>
+            <span className="text-3xl font-bold tracking-tight">{currency(summary.total)}</span>
           </div>
           <div className="mt-1 text-right text-xs text-muted-foreground">
-            {yearly
-              ? `${currency(summary.monthlyBilled)}/mo effective`
-              : "per month, plus tax"}
+            {yearly ? `${currency(summary.monthlyBilled)}/mo effective` : "per month, plus tax"}
           </div>
 
           <Link
             to={`/register?plan=${encodeURIComponent(state.planId)}&billing=${state.yearly ? "yearly" : "monthly"}&modules=${encodeURIComponent(state.moduleIds.join(","))}`}
             className="mt-6 block"
           >
-            <Button size="lg" className="w-full bg-brand-gradient text-primary-foreground shadow-glow">
+            <Button
+              size="lg"
+              className="w-full bg-brand-gradient text-primary-foreground shadow-glow"
+            >
               Continue to registration
               <ArrowRight className="ml-1 h-4 w-4" />
             </Button>
           </Link>
 
           <div className="mt-4 space-y-1.5 text-xs text-muted-foreground">
-            <p className="flex items-center gap-1.5"><Check className="h-3 w-3 text-success" /> Transparent pricing, no hidden fees</p>
-            <p className="flex items-center gap-1.5"><Check className="h-3 w-3 text-success" /> Cancel or change modules anytime</p>
-            <p className="flex items-center gap-1.5"><Check className="h-3 w-3 text-success" /> SOC 2 & GDPR-ready platform</p>
+            <p className="flex items-center gap-1.5">
+              <Check className="h-3 w-3 text-success" /> Transparent pricing, no hidden fees
+            </p>
+            <p className="flex items-center gap-1.5">
+              <Check className="h-3 w-3 text-success" /> Cancel or change modules anytime
+            </p>
+            <p className="flex items-center gap-1.5">
+              <Check className="h-3 w-3 text-success" /> SOC 2 & GDPR-ready platform
+            </p>
           </div>
         </div>
       </aside>
